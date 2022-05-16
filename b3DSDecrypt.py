@@ -2,6 +2,7 @@
 # from Crypto.Cipher import AES
 # from Crypto.Util import Counter
 from cryptography.hazmat.primitives.ciphers import Cipher, modes, algorithms
+from cryptography.hazmat.backends import default_backend
 from sys import argv
 import struct
 
@@ -187,8 +188,8 @@ with open(argv[1], 'rb') as f:
                                 f.seek((part_off[0] + 1) * sectorsize)
                                 g.seek((part_off[0] + 1) * sectorsize)
                                 exhdr_filelen = 0x800
-                                exefsctrmode2C = Cipher(algorithms.AES(key_to_bytes(NormalKey2C)),
-                                                        modes.CTR(iv_to_bytes(plainIV))).decryptor()
+                                exefsctrmode2C = Cipher(algorithms.AES(key_to_bytes(
+                                    NormalKey2C)), modes.CTR(iv_to_bytes(plainIV)), backend=default_backend()).decryptor()
                                 print(
                                     "Partition %1d ExeFS: Decrypting: ExHeader" % (p))
                                 g.write(exefsctrmode2C.update(
@@ -201,7 +202,7 @@ with open(argv[1], 'rb') as f:
                                 g.seek(
                                     (part_off[0] + exefs_off[0]) * sectorsize)
                                 exefsctrmode2C = Cipher(algorithms.AES(key_to_bytes(NormalKey2C)),
-                                                        modes.CTR(iv_to_bytes(exefsIV))).decryptor()
+                                                        modes.CTR(iv_to_bytes(exefsIV)), backend=default_backend()).decryptor()
                                 g.write(exefsctrmode2C.update(
                                     f.read(sectorsize)))
                                 print(
@@ -230,10 +231,10 @@ with open(argv[1], 'rb') as f:
                                                 (code_fileoff[0] + sectorsize) / 0x10)
                                             exefsctrmode = Cipher(algorithms.AES(key_to_bytes(NormalKey)),
                                                                   modes.CTR(iv_to_bytes(
-                                                                      exefsIV + ctroffset))).decryptor()
+                                                                      exefsIV + ctroffset)), backend=default_backend()).decryptor()
                                             exefsctrmode2C = Cipher(algorithms.AES(key_to_bytes(NormalKey2C)),
                                                                     modes.CTR(iv_to_bytes(
-                                                                        exefsIV + ctroffset))).encryptor()
+                                                                        exefsIV + ctroffset)), backend=default_backend()).encryptor()
                                             f.seek(
                                                 (((part_off[0] + exefs_off[0]) + 1) * sectorsize) + code_fileoff[0])
                                             g.seek(
@@ -262,7 +263,7 @@ with open(argv[1], 'rb') as f:
                                 ctroffset = int(sectorsize / 0x10)
                                 exefsctrmode2C = Cipher(algorithms.AES(key_to_bytes(NormalKey2C)),
                                                         modes.CTR(iv_to_bytes(
-                                                            exefsIV + ctroffset))).decryptor()
+                                                            exefsIV + ctroffset)), backend=default_backend()).decryptor()
                                 f.seek(
                                     (part_off[0] + exefs_off[0] + 1) * sectorsize)
                                 g.seek(
@@ -293,7 +294,7 @@ with open(argv[1], 'rb') as f:
                                     (romfs_len[0] * sectorsize) / (1024*1024) + 1)
 
                                 romfsctrmode = Cipher(algorithms.AES(key_to_bytes(NormalKey)),
-                                                      modes.CTR(iv_to_bytes(romfsIV))).decryptor()
+                                                      modes.CTR(iv_to_bytes(romfsIV)), backend=default_backend()).decryptor()
 
                                 f.seek(
                                     (part_off[0] + romfs_off[0]) * sectorsize)
