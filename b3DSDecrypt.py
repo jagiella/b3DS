@@ -65,7 +65,10 @@ with open(argv[1], 'rb') as f:
 
                 # Get the partition flags to determine encryption type.
                 f.seek(((part_off[0]) * sectorsize) + 0x188)
-                partition_flags = struct.unpack('<BBBBBBBB', f.read(0x8))
+                t = f.read(0x8)
+                print(t)
+                print(len(t))
+                partition_flags = struct.unpack('<BBBBBBBB', t)
 
                 # check if the 'NoCrypto' bit (bit 3) is set
                 if (partition_flags[7] & 0x04):
