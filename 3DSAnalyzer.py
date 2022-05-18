@@ -21,7 +21,7 @@ FLAG7 = {0x1: 'FixedCryptoKey',  0x2: 'NoMountRomFs',
 
 
 class Decryptor:
-    def __init__(self, ncch_flags):
+    def __init__(self, ncch_flags, ncch_version):
         if (ncch_flags[7] & 0x01):
             NormalKey = 0x00
             NormalKey2C = 0x00
@@ -51,8 +51,13 @@ class NCCHBlock:
 
         f.seek(off*self.sectorsize + 0x108)
         # TitleID is used as IV joined with the content type.
-        part_id = struct.unpack('<Q', f.read(0x8))
-        print('Part ID: %016X' % (part_id))
+        # self.part_id = struct.unpack('<Q', f.read(0x8))
+        self.part_id = f.read(0x8)
+        print('Part ID: %s' % (self.part_id))
+
+        f.seek(off*self.sectorsize + 0x112)
+        self.version = struct.unpack('<H', f.read(0x2))
+        print('version: %04X' % (self.version))
 
         f.seek(off*self.sectorsize+0x188)
         self.ncch_flags = f.read(0x08)
@@ -90,7 +95,20 @@ class NCCHBlock:
         self.f.seek(self.off*self.sectorsize)  # go to start of partition
 
         # copy blocks
-        f_out.write(self.f.read(self.size*self.sectorsize))
+        # f_out.write(self.f.read(self.size*self.sectorsize))
+
+        # keys
+        # KeyY is the first 16 bytes of partition RSA-2048 SHA-256 signature
+        part_keyy = struct.unpack('>QQ', self.f.read(0x10))
+
+        # CTRs
+        if(self.version == 0 or self.version == 2):
+            header_ctr = self.part_id[::-1] + \
+                b'\x01\x00\x00\x00\x00\x00\x00\x00'
+            exefs_ctr = self.part_id[::-1] + \
+                b'\x02\x00\x00\x00\x00\x00\x00\x00'
+            romfs_ctr = self.part_id[::-1] + \
+                b'\x03\x00\x00\x00\x00\x00\x00\x00'
 
         # decode exheader
         if (self.ExHeader_len > 0):
@@ -98,7 +116,7 @@ class NCCHBlock:
             self.f.seek((self.off + 1) * self.sectorsize)
             f_out.seek((self.off + 1) * self.sectorsize)
             exhdr_filelen = 0x800
-            dec = Decryptor(self.ncch_flags)
+            dec = Decryptor(self.ncch_flags, self.version)
             # exefsctrmode2C = Cipher(
             #     algorithms.AES(key_to_bytes(NormalKey2C)),
             #     modes.CTR(iv_to_bytes(plainIV)),
