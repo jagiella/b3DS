@@ -89,10 +89,12 @@ class NCCHBlock:
             f.seek(off*self.sectorsize+0x180)
             self.ExHeader_len = struct.unpack('<I', f.read(0x4))[0]
             print('- ExHdr_len: %i' % (self.ExHeader_len))
-            f.seek(off*self.sectorsize+0x1A4)
+            f.seek(off*self.sectorsize+0x1A0)
+            self.ExeFS_off = struct.unpack('<I', f.read(0x4))[0]
             self.ExeFS_len = struct.unpack('<I', f.read(0x4))[0]
             print('- ExeFS_len: %i' % (self.ExeFS_len))
-            f.seek(off*self.sectorsize+0x1B4)
+            f.seek(off*self.sectorsize+0x1B0)
+            self.RomFS_off = struct.unpack('<I', f.read(0x4))[0]
             self.RomFS_len = struct.unpack('<I', f.read(0x4))[0]
             print('- RomFS_len: %i' % (self.RomFS_len))
         else:
@@ -158,25 +160,47 @@ class NCCHBlock:
                       (self.version))
 
             # decode exheader
-            if (self.ExHeader_len > 0):
+            if (self.ExHeader_len != 0):
                 # decrypt exheader
-                self.f.seek((self.off + 1) * self.sectorsize)
-                f_out.seek((self.off + 1) * self.sectorsize)
-                exhdr_filelen = 0x800
-                dec = Decryptor(self.ncch_flags, self.version)
+                exhdrSize = 0x800  # block size in bytes (2kb)
 
-                # ctr = self.part_id[::-1] + header_ctr
-                print(header_ctr)
                 exefsctrmode2C = Cipher(
                     algorithms.AES(to_bytes(NormalKey2C)),
                     modes.CTR(header_ctr),
                     backend=default_backend()).decryptor()
+
+                self.f.seek((self.off + 1) * self.sectorsize)
+                f_out.seek((self.off + 1) * self.sectorsize)
+
                 print(
                     "Partition %1d ExeFS: Decrypting: ExHeader" % (p))
                 f_out.write(exefsctrmode2C.update(
-                    self.f.read(exhdr_filelen)))
+                    self.f.read(exhdrSize)))
             else:
-                print('skip empty partition')
+                print('skip ExHeader')
+
+            if (self.RomFS_off != 0):
+                romfsBlockSize = 0x1000000  # block size in bytes (16mb)
+
+                romfsctrmode = Cipher(
+                    algorithms.AES(to_bytes(NormalKey)),
+                    modes.CTR(romfs_ctr),
+                    backend=default_backend()).decryptor()
+
+                self.f.seek(
+                    (self.off + self.RomFS_off) * self.sectorsize)
+                f_out.seek(
+                    (self.off + self.RomFS_off) * self.sectorsize)
+
+                for block_off in range(0, self.RomFS_len * self.sectorsize, romfsBlockSize):
+                    block_len = min(self.RomFS_len * self.sectorsize - block_off,
+                                    romfsBlockSize)
+                    block = romfsctrmode.update(self.f.read(block_len))
+                    if(block_off == 0):
+                        print(block[:4])
+                    f_out.write(block)
+                    print("\rPartition %1d RomFS: Decrypting: %4d / %4d byte... Done" % (
+                        p, block_off+block_len, self.RomFS_len * self.sectorsize))
 
 
 class NCSDHeader:
