@@ -5,8 +5,9 @@ Created on Wed May 18 00:03:18 2022
 
 @author: nick
 """
-from sys import argv
 import struct
+
+from sys import argv
 
 from cryptography.hazmat.primitives.ciphers import Cipher, modes, algorithms
 from cryptography.hazmat.backends import default_backend
@@ -43,46 +44,41 @@ KeyX0x2C = int('B98E95CECA3E4D171F76A94DE934C053', 16)
 
 
 class NCCHBlock:
-    def __init__(self, f, partID, off, size, ncsd_flags):
+    def __init__(self, f, off, size, sectorsize):
         self.f = f
         self.off = off
         self.size = size
-
-        self.sectorsize = MEDIAUNIT * (2**ncsd_flags[6])
-        # print('sectorsize: %i bytes' % (self.sectorsize))
+        self.sectorsize = sectorsize
+        
 
         f.seek(off*self.sectorsize+0x100)
         self.magic = f.read(0x04)
-        # print(magic)
-        if(self.magic == b'NCCH'):
+
+        if(self.magic == b'NCCH'):   
             f.seek(off*self.sectorsize + 0x108)
-            # TitleID is used as IV joined with the content type.
-            # self.part_id = struct.unpack('<Q', f.read(0x8))
             self.partition_id = f.read(0x8)
-            print('Part ID: %s' % (self.partition_id))
+            # print('Partition ID: %s' % (self.partition_id))
 
             f.seek(off*self.sectorsize + 0x112)
             self.version = struct.unpack('<H', f.read(0x2))[0]
-            print('version: %04X' % (self.version))
+            # print('- version: %04X' % (self.version))
 
             f.seek(off*self.sectorsize+0x188)
             self.ncch_flags = f.read(0x08)
-            # print(ncchflag)
-            # self.analyzeFlags(ncchflag)
 
             f.seek(off*self.sectorsize+0x180)
             self.ExHeader_len = struct.unpack('<I', f.read(0x4))[0]
-            print('- ExHdr_len: %i' % (self.ExHeader_len))
+            # print('- ExHdr_len: %i' % (self.ExHeader_len))
             f.seek(off*self.sectorsize+0x1A0)
             self.ExeFS_off = struct.unpack('<I', f.read(0x4))[0]
             self.ExeFS_len = struct.unpack('<I', f.read(0x4))[0]
-            print('- ExeFS_len: %i' % (self.ExeFS_len))
+            # print('- ExeFS_len: %i' % (self.ExeFS_len))
             f.seek(off*self.sectorsize+0x1B0)
             self.RomFS_off = struct.unpack('<I', f.read(0x4))[0]
             self.RomFS_len = struct.unpack('<I', f.read(0x4))[0]
-            print('- RomFS_len: %i' % (self.RomFS_len))
-        else:
-            print('no valid partition')
+            # print('- RomFS_len: %i' % (self.RomFS_len))
+        # else:
+        #     print('no valid partition')
 
     def write_dec(self, f_out):
         if(self.magic == b'NCCH'):
@@ -113,8 +109,8 @@ class NCCHBlock:
 
             # CTRs
             if((self.version == 0) or (self.version == 2)):
-                print(
-                    'CTR = [partition_id[7], partition_id[6], ..., partition_id[0], M, 0, ..., 0]')
+                # print(
+                #     'CTR = [partition_id[7], partition_id[6], ..., partition_id[0], M, 0, ..., 0]')
                 header_ctr = int.from_bytes(self.partition_id[::-1] +
                                             b'\x01\x00\x00\x00\x00\x00\x00\x00', byteorder='big')
                 exefs_ctr = int.from_bytes(self.partition_id[::-1] +
@@ -153,7 +149,7 @@ class NCCHBlock:
                 f_out.write(exefsctrmode2C.update(
                     self.f.read(exhdrSize)))
             else:
-                print('skip ExHeader')
+                print('Partition %1d ExHeader: skip' % (p))
 
             if (self.RomFS_off != 0):
                 romfsBlockSize = 0x1000000  # block size in bytes (16mb)
@@ -179,7 +175,7 @@ class NCCHBlock:
                     print("\rPartition %1d RomFS: Decrypting: %4d / %4d byte... Done" % (
                         p, block_off+block_len, self.RomFS_len * self.sectorsize))
             else:
-                print('skip RomFS')
+                print('Partition %1d RomFS: skip' % (p))
 
             if (self.ExeFS_off != 0):
                 # decrypt exefs filename table
@@ -205,7 +201,7 @@ class NCCHBlock:
                     fileoff = struct.unpack('<L', f_out.read(0x04))[0]
                     filelen = struct.unpack('<L', f_out.read(0x04))[0]
                     if(filelen != 0):
-                        print('%s: %i + %i' % (filename, fileoff, filelen))
+                        # print('%s: %i + %i' % (filename, fileoff, filelen))
 
                         # decrypt file
                         self.f.seek((((self.off + self.ExeFS_off) + 1)
@@ -233,7 +229,7 @@ class NCCHBlock:
                             print("\rPartition %1d ExeFS: Decrypting: %4d / %4d byte... Done" % (
                                 p, block_off+block_len, filelen))
             else:
-                print('skip RomFS')
+                print('Partition %1d ExeFS: skip' % (p))
 
 
 class NCSDHeader:
@@ -251,31 +247,30 @@ class NCSDHeader:
         f.seek(0x120)
         for p in range(8):
             part_off, part_len = struct.unpack('<LL', f.read(0x08))
-            # part_len = struct.unpack('<L', f.read(0x04))
-            # print('partition %i: %i - %i (+%i)' %
-            #       (p, part_off*MEDIAUNIT, (part_off + part_len)*MEDIAUNIT, part_len*MEDIAUNIT))
             self.partition_offsets.append(part_off)
             self.partition_lens.append(part_len)
 
         f.seek(0x188)
         self.ncsd_flags = f.read(0x08)
+        self.sectorsize = MEDIAUNIT * (2**self.ncsd_flags[6])
 
     def write_dec(self, f_out):
         self.f.seek(0x0)
         f_out.write(self.f.read(0x200))
+        print('NSCD Header: Copy... Done')
 
 
 class NCSD:
     def __init__(self, f):
-        self.f = f
+        # self.f = f
 
         self.__header = NCSDHeader(f)
 
         self.__partitions = [NCCHBlock(
-            f, i, self.__header.partition_offsets[i], self.__header.partition_lens[i], self.__header.ncsd_flags) for i in range(8)]
+            f, self.__header.partition_offsets[i], self.__header.partition_lens[i], self.__header.sectorsize) for i in range(8)]
 
     def header(self):
-        return NCSDHeader(self.f)
+        return self.__header
 
     def partition(self, p):
         if(p >= 0 and p < 8):
