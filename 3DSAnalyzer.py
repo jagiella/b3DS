@@ -6,6 +6,7 @@ Created on Wed May 18 00:03:18 2022
 @author: nick
 """
 import struct
+import argparse
 
 from sys import argv
 
@@ -22,12 +23,6 @@ def to_bytes(num):
 
 
 MEDIAUNIT = 0x200
-
-FLAG4 = {1: "CTR", 2: "snake (New 3DS)"}
-FLAG5 = {0x1: 'Data', 0x2: 'Executable',  0x4: 'SystemUpdate',
-         0x8: 'Manual', (0x4 | 0x8): 'Child', 0x10: 'Trial'}
-FLAG7 = {0x1: 'FixedCryptoKey',  0x2: 'NoMountRomFs',
-         0x4: 'NoCrypto',  0x20: 'using a new keyY generator'}
 
 # 3DS AES Hardware Constant
 Constant = int('1FF9E9AAC5FE0408024591DC5D52768A', 16)
@@ -276,11 +271,16 @@ class NCSD:
         if(p >= 0 and p < 8):
             return self.__partitions[p]
 
+parser = argparse.ArgumentParser(description='Decrypt 3ds files.')
+parser.add_argument('file_in', help='encrypted 3ds file')
+parser.add_argument('file_out', help='decrypted 3ds file')
 
-with open(argv[1], 'rb') as f_in:
+args = parser.parse_args(argv[1:])
+
+with open(args.file_in, 'rb') as f_in:
     ncsd = NCSD(f_in)
 
-    with open(argv[1]+'.dec.3ds', 'wb+') as f_out:
+    with open(args.file_out, 'wb+') as f_out:
         ncsd.header().write_dec(f_out)
         for p in range(8):
             ncsd.partition(p).write_dec(f_out)
