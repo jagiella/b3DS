@@ -42,22 +42,6 @@ KeyX0x25 = int('CEE7D8AB30C00DAE850EF5E382AC5AF3', 16)
 KeyX0x2C = int('B98E95CECA3E4D171F76A94DE934C053', 16)
 
 
-class Decryptor:
-    def __init__(self, ncch_flags, ncch_version):
-        if (ncch_flags[7] & 0x01):
-            NormalKey = 0x00
-            NormalKey2C = 0x00
-            # if (p == 0):
-            print("Encryption Method: Zero Key")
-        else:
-            print('Encryption Method: unknown')
-
-
-class ExtendedHeader:
-    def __init__(self):
-        pass
-
-
 class NCCHBlock:
     def __init__(self, f, partID, off, size, ncsd_flags):
         self.f = f
@@ -69,13 +53,13 @@ class NCCHBlock:
 
         f.seek(off*self.sectorsize+0x100)
         self.magic = f.read(0x04)
-        print(self.magic)
+        # print(magic)
         if(self.magic == b'NCCH'):
             f.seek(off*self.sectorsize + 0x108)
             # TitleID is used as IV joined with the content type.
             # self.part_id = struct.unpack('<Q', f.read(0x8))
-            self.part_id = f.read(0x8)
-            print('Part ID: %s' % (self.part_id))
+            self.partition_id = f.read(0x8)
+            print('Part ID: %s' % (self.partition_id))
 
             f.seek(off*self.sectorsize + 0x112)
             self.version = struct.unpack('<H', f.read(0x2))[0]
@@ -100,64 +84,56 @@ class NCCHBlock:
         else:
             print('no valid partition')
 
-    def analyzeFlags(self, flags):
-        print('- Crypto Method: ' + str(flags[3]))
-
-        print('- Platform: ' + FLAG4[flags[4]])
-
-        content = []
-        for t in FLAG5:
-            if(t & flags[5] == t):
-                content.append(FLAG5[t])
-        print('- Content:  ' + ', '.join(content))
-
-        crypto = []
-        for t in FLAG7:
-            if(t & flags[7] == t):
-                crypto.append(FLAG7[t])
-        print('- Crypto:  ' + ', '.join(crypto))
-
     def write_dec(self, f_out):
         if(self.magic == b'NCCH'):
             self.f.seek(self.off*self.sectorsize)  # go to start of partition
 
-            # copy blocks
-            # f_out.write(self.f.read(self.size*self.sectorsize))
-
             # keys
-            # KeyY is the first 16 bytes of partition RSA-2048 SHA-256 signature
-            KeyY = int.from_bytes(self.f.read(0x10), byteorder='big')
+            if (self.ncch_flags[7] & 0x01):
+                NormalKey = 0x00
+                NormalKey2C = 0x00
+                print("Encryption Method: Zero Key")
+            else:
+                # KeyY is the first 16 bytes of partition RSA-2048 SHA-256 signature
+                KeyY = int.from_bytes(self.f.read(0x10), byteorder='big')
 
-            if (self.ncch_flags[3] == 0x00):  # Uses Original Key
-                KeyX = KeyX0x2C
-            elif (self.ncch_flags[3] == 0x01):  # Uses 7.x Key
-                KeyX = KeyX0x25
-            elif (self.ncch_flags[3] == 0x0A):  # Uses New3DS 9.3 Key
-                KeyX = KeyX0x18
-            elif (self.ncch_flags[3] == 0x0B):  # Uses New3DS 9.6 Key
-                KeyX = KeyX0x1B
+                if (self.ncch_flags[3] == 0x00):  # Uses Original Key
+                    KeyX = KeyX0x2C
+                elif (self.ncch_flags[3] == 0x01):  # Uses 7.x Key
+                    KeyX = KeyX0x25
+                elif (self.ncch_flags[3] == 0x0A):  # Uses New3DS 9.3 Key
+                    KeyX = KeyX0x18
+                elif (self.ncch_flags[3] == 0x0B):  # Uses New3DS 9.6 Key
+                    KeyX = KeyX0x1B
 
-            NormalKey = rol(
-                (rol(KeyX, 2, 128) ^ KeyY) + Constant, 87, 128)
-            NormalKey2C = rol(
-                (rol(KeyX0x2C, 2, 128) ^ KeyY) + Constant, 87, 128)
+                NormalKey = rol(
+                    (rol(KeyX, 2, 128) ^ KeyY) + Constant, 87, 128)
+                NormalKey2C = rol(
+                    (rol(KeyX0x2C, 2, 128) ^ KeyY) + Constant, 87, 128)
 
             # CTRs
             if((self.version == 0) or (self.version == 2)):
                 print(
                     'CTR = [partition_id[7], partition_id[6], ..., partition_id[0], M, 0, ..., 0]')
-                header_ctr = self.part_id[::-1] + \
-                    b'\x01\x00\x00\x00\x00\x00\x00\x00'
-                exefs_ctr = self.part_id[::-1] + \
-                    b'\x02\x00\x00\x00\x00\x00\x00\x00'
-                romfs_ctr = self.part_id[::-1] + \
-                    b'\x03\x00\x00\x00\x00\x00\x00\x00'
+                header_ctr = int.from_bytes(self.partition_id[::-1] +
+                                            b'\x01\x00\x00\x00\x00\x00\x00\x00', byteorder='big')
+                exefs_ctr = int.from_bytes(self.partition_id[::-1] +
+                                           b'\x02\x00\x00\x00\x00\x00\x00\x00', byteorder='big')
+                romfs_ctr = int.from_bytes(self.partition_id[::-1] +
+                                           b'\x03\x00\x00\x00\x00\x00\x00\x00', byteorder='big')
             elif(self.version == 1):
-                print(
+                raise NotImplementedError(
                     'CTR = [partition_id[0], partition_id[1], ...,partition_id[7], 0, 0, 0, 0, T[0], T[1], T[2], T[3]]')
             else:
-                print('CTR can not be determined: version = %i' %
-                      (self.version))
+                raise ValueError('CTR can not be determined: version = %i' %
+                                 (self.version))
+
+            # copy NCCH header
+            self.f.seek((self.off) * self.sectorsize)
+            f_out.seek((self.off) * self.sectorsize)
+            f_out.write(self.f.read(self.sectorsize))
+            print(
+                "Partition %1d ExeFS: Copy: NCCH Header" % (p))
 
             # decode exheader
             if (self.ExHeader_len != 0):
@@ -166,7 +142,7 @@ class NCCHBlock:
 
                 exefsctrmode2C = Cipher(
                     algorithms.AES(to_bytes(NormalKey2C)),
-                    modes.CTR(header_ctr),
+                    modes.CTR(to_bytes(header_ctr)),
                     backend=default_backend()).decryptor()
 
                 self.f.seek((self.off + 1) * self.sectorsize)
@@ -184,7 +160,7 @@ class NCCHBlock:
 
                 romfsctrmode = Cipher(
                     algorithms.AES(to_bytes(NormalKey)),
-                    modes.CTR(romfs_ctr),
+                    modes.CTR(to_bytes(romfs_ctr)),
                     backend=default_backend()).decryptor()
 
                 self.f.seek(
@@ -196,16 +172,93 @@ class NCCHBlock:
                     block_len = min(self.RomFS_len * self.sectorsize - block_off,
                                     romfsBlockSize)
                     block = romfsctrmode.update(self.f.read(block_len))
-                    if(block_off == 0):
-                        print(block[:4])
+                    if(block_off == 0 and block[:4] != b'IVFC'):  # check magic
+                        raise ValueError(
+                            'Wrong magic word of RomFS: ' + str(block[:4]))
                     f_out.write(block)
                     print("\rPartition %1d RomFS: Decrypting: %4d / %4d byte... Done" % (
                         p, block_off+block_len, self.RomFS_len * self.sectorsize))
+            else:
+                print('skip RomFS')
+
+            if (self.ExeFS_off != 0):
+                # decrypt exefs filename table
+                self.f.seek(
+                    (self.off + self.ExeFS_off) * self.sectorsize)
+                f_out.seek(
+                    (self.off + self.ExeFS_off) * self.sectorsize)
+
+                exefsctrmode2C = Cipher(
+                    algorithms.AES(to_bytes(NormalKey2C)),
+                    modes.CTR(to_bytes(exefs_ctr)),
+                    backend=default_backend()).decryptor()
+                f_out.write(exefsctrmode2C.update(
+                    self.f.read(0x200)))
+                print(
+                    "Partition %1d ExeFS: Decrypting: ExeFS Filename Table" % (p))
+
+                for j in range(10):  # 10 exefs filename slots
+                    # get filename, offset and length
+                    f_out.seek(
+                        (self.off + self.ExeFS_off) * self.sectorsize + j*0x10)
+                    filename = struct.unpack('<8s', f_out.read(0x08))[0]
+                    fileoff = struct.unpack('<L', f_out.read(0x04))[0]
+                    filelen = struct.unpack('<L', f_out.read(0x04))[0]
+                    if(filelen != 0):
+                        print('%s: %i + %i' % (filename, fileoff, filelen))
+
+                        # decrypt file
+                        self.f.seek((((self.off + self.ExeFS_off) + 1)
+                                    * self.sectorsize) + fileoff)
+                        f_out.seek((((self.off + self.ExeFS_off) + 1)
+                                   * self.sectorsize) + fileoff)
+
+                        if(filename == b'banner\x00\x00' or filename == b'icon\x00\x00\x00\x00'):
+                            Key = NormalKey2C
+                        else:
+                            Key = NormalKey
+
+                        ctroffset = int((fileoff + self.sectorsize) / 0x10)
+
+                        exefsctrmode = Cipher(
+                            algorithms.AES(to_bytes(Key)),
+                            modes.CTR(to_bytes(exefs_ctr + ctroffset)),
+                            backend=default_backend()).decryptor()
+
+                        blockSize = 1024*1024
+                        for block_off in range(0, filelen, blockSize):
+                            block_len = min(filelen - block_off, blockSize)
+                            block = exefsctrmode.update(self.f.read(block_len))
+                            f_out.write(block)
+                            print("\rPartition %1d ExeFS: Decrypting: %4d / %4d byte... Done" % (
+                                p, block_off+block_len, filelen))
+            else:
+                print('skip RomFS')
 
 
 class NCSDHeader:
     def __init__(self, f):
         self.f = f
+
+        f.seek(0x100)  # Seek to start of NCSD header
+        magic = f.read(0x04)
+        if(magic != b'NCSD'):
+            raise ValueError('Invalid header')
+
+        # partition table
+        self.partition_offsets = []
+        self.partition_lens = []
+        f.seek(0x120)
+        for p in range(8):
+            part_off, part_len = struct.unpack('<LL', f.read(0x08))
+            # part_len = struct.unpack('<L', f.read(0x04))
+            # print('partition %i: %i - %i (+%i)' %
+            #       (p, part_off*MEDIAUNIT, (part_off + part_len)*MEDIAUNIT, part_len*MEDIAUNIT))
+            self.partition_offsets.append(part_off)
+            self.partition_lens.append(part_len)
+
+        f.seek(0x188)
+        self.ncsd_flags = f.read(0x08)
 
     def write_dec(self, f_out):
         self.f.seek(0x0)
@@ -215,53 +268,18 @@ class NCSDHeader:
 class NCSD:
     def __init__(self, f):
         self.f = f
-        f.seek(0x100)  # Seek to start of NCSD header
-        magic = f.read(0x04)
-        print(magic)
-        size = struct.unpack('I', f.read(0x04))[0]
-        print(size*MEDIAUNIT)
-        titleID = f.read(0x08)
-        print(titleID)
-        partitionsFS = f.read(0x08)
-        print(partitionsFS)
-        partitionsCTL = f.read(0x08)
-        print(partitionsCTL)
 
-        # f.seek(0x180)
-        # AddHdrSize = struct.unpack('I', f.read(0x04))  # [0]
-        # print('Additional Header Size: %i' % (AddHdrSize))
+        self.__header = NCSDHeader(f)
 
-        # partition table
-        self.offs = []
-        self.lens = []
-        for p in range(8):
-            part_off, part_len = struct.unpack('<LL', f.read(0x08))
-            # part_len = struct.unpack('<L', f.read(0x04))
-            print('partition %i: %i - %i (+%i)' %
-                  (p, part_off*MEDIAUNIT, (part_off + part_len)*MEDIAUNIT, part_len*MEDIAUNIT))
-            self.offs.append(part_off)
-            self.lens.append(part_len)
-
-        f.seek(0x188)
-        self.ncsd_flags = f.read(0x08)
-        self.sectorsize = MEDIAUNIT * (2**self.ncsd_flags[6])
-        print('sectorsize: %i bytes' % (self.sectorsize))
-
-        # partition ID table
-        for p in range(8):
-            part_ID = struct.unpack('<Q', f.read(0x8))[0]
-            print('part %i: %016X' % (p, part_ID))
-
-        # for p in range(8):
-        #     if(self.lens[p] > 0):
-        #         NCCHBlock(f, p, self.offs[p], self.lens[p], self.part_flags[p])
+        self.__partitions = [NCCHBlock(
+            f, i, self.__header.partition_offsets[i], self.__header.partition_lens[i], self.__header.ncsd_flags) for i in range(8)]
 
     def header(self):
         return NCSDHeader(self.f)
 
     def partition(self, p):
         if(p >= 0 and p < 8):
-            return NCCHBlock(self.f, p, self.offs[p], self.lens[p], self.ncsd_flags)
+            return self.__partitions[p]
 
 
 with open(argv[1], 'rb') as f_in:
