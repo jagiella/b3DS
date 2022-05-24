@@ -7,11 +7,15 @@ Created on Wed May 18 00:03:18 2022
 """
 import struct
 import argparse
+import cv2
+import numpy as np
 
 from sys import argv
 
 from cryptography.hazmat.primitives.ciphers import Cipher, modes, algorithms
 from cryptography.hazmat.backends import default_backend
+
+from icn_parser import export
 
 
 def rol(val, r_bits, max_bits):
@@ -20,6 +24,18 @@ def rol(val, r_bits, max_bits):
 
 def to_bytes(num):
     return num.to_bytes(length=16, byteorder='big', signed=False)
+
+
+def rgb565to888(im):
+    MASK5 = 0b011111
+    MASK6 = 0b111111
+    b = (im & MASK5) << 3
+    g = ((im >> 5) & MASK6) << 2
+    r = ((im >> (5 + 6)) & MASK5) << 3
+
+    # Compose into one 3-dimensional matrix of 8-bit integers
+    rgb = np.dstack((r, g, b)).astype(np.uint8)
+    return rgb
 
 
 MEDIAUNIT = 0x200
@@ -44,12 +60,11 @@ class NCCHBlock:
         self.off = off
         self.size = size
         self.sectorsize = sectorsize
-        
 
         f.seek(off*self.sectorsize+0x100)
         self.magic = f.read(0x04)
 
-        if(self.magic == b'NCCH'):   
+        if(self.magic == b'NCCH'):
             f.seek(off*self.sectorsize + 0x108)
             self.partition_id = f.read(0x8)
             # print('Partition ID: %s' % (self.partition_id))
@@ -220,6 +235,12 @@ class NCCHBlock:
                         for block_off in range(0, filelen, blockSize):
                             block_len = min(filelen - block_off, blockSize)
                             block = exefsctrmode.update(self.f.read(block_len))
+                            if(block[:4] == b'SMDH'):
+                                print(block[:4])
+                                export('icon_24x24.png',
+                                       block[0x2040:0x2040+0x480])
+                                export('icon_48x48.png',
+                                       block[0x24C0:0x24C0+0x1200])
                             f_out.write(block)
                             print("\rPartition %1d ExeFS: Decrypting: %4d / %4d byte... Done" % (
                                 p, block_off+block_len, filelen))
@@ -270,6 +291,7 @@ class NCSD:
     def partition(self, p):
         if(p >= 0 and p < 8):
             return self.__partitions[p]
+
 
 parser = argparse.ArgumentParser(description='Decrypt 3ds files.')
 parser.add_argument('file_in', help='encrypted 3ds file')
